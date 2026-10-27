@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <!-- Жесткая привязка к ширине экрана, запрет масштабирования для эффекта нативного приложения -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Расписание КАК</title>
+    
+    <!-- Подключение SDK для WebApp (совместимо с Telegram и МАХ) -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
+    <style>
+        /* CSS-переменные для автоматической адаптации под тему МАХ (Светлая/Темная) */
+        :root {
+            --bg-color: var(--tg-theme-bg-color, #ffffff);
+            --text-color: var(--tg-theme-text-color, #000000);
+            --hint-color: var(--tg-theme-hint-color, #999999);
+            --link-color: var(--tg-theme-link-color, #007aff);
+            --button-color: var(--tg-theme-button-color, #007aff);
+            --button-text-color: var(--tg-theme-button-text-color, #ffffff);
+            --secondary-bg-color: var(--tg-theme-secondary-bg-color, #f4f4f4);
+            --header-bg-color: var(--tg-theme-header-bg-color, #ffffff);
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            padding: 0;
+            padding-bottom: 80px; /* Отступ для нативной нижней кнопки MainButton */
+            min-height: 100vh;
+            line-height: 1.4;
+            overflow-x: hidden;
+            overscroll-behavior-y: none; /* Предотвращает "отскок" страницы на iOS */
+        }
+
+        /* Шапка приложения */
+        .app-header {
+            background-color: var(--header-bg-color);
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid rgba(128,128,128,0.1);
+        }
+
+        .app-header img {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            object-fit: cover;
+            background: var(--secondary-bg-color);
+        }
+
+        .app-header .title { font-size: 17px; font-weight: 600; }
+        .app-header .subtitle { font-size: 13px; color: var(--hint-color); margin-top: 2px; }
+
+        /* Экраны (переключение) */
+        .screen { display: none; padding: 16px; animation: fadeIn 0.3s ease; }
+        .screen.active { display: block; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Карточки */
+        .card {
+            background-color: var(--secondary-bg-color);
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: transform 0.1s, opacity 0.1s;
+            cursor: pointer;
+        }
+
+        .card:active { transform: scale(0.98); opacity: 0.8; }
+        .card-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+        .card-subtitle { font-size: 13px; color: var(--hint-color); }
+
+        /* Расписание */
+        .day-header {
+            font-size: 15px; font-weight: 700; margin: 20px 0 10px 4px;
+            color: var(--link-color); text-transform: uppercase; letter-spacing: 0.5px;
+        }
+
+        .lesson {
+            background: var(--secondary-bg-color); border-radius: 12px;
+            padding: 14px 16px; margin-bottom: 10px;
+            display: flex; gap: 14px; align-items: flex-start;
+        }
+
+        .lesson-time { font-size: 14px; font-weight: 700; color: var(--button-color); min-width: 50px; padding-top: 2px; }
+        .lesson-info { flex: 1; }
+        .lesson-subject { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+        .lesson-details { font-size: 13px; color: var(--hint-color); }
+
+        /* Пустое состояние */
+        .empty-state { text-align: center; padding: 40px 20px; color: var(--hint-color); }
+        .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+
+        /* Заглушка для обычного браузера */
+        .browser-fallback {
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            height: 100vh; padding: 20px; text-align: center;
+        }
+        .browser-fallback h2 { margin-bottom: 10px; }
+        .browser-fallback p { color: var(--hint-color); margin-bottom: 20px; }
+        .browser-fallback a { color: var(--link-color); font-weight: 600; text-decoration: none; }
+    </style>
+</head>
+<body>
+
+    <!-- ОСНОВНОЙ КОНТЕЙНЕР ПРИЛОЖЕНИЯ -->
+    <div id="app-container">
+        <div class="app-header">
+            <!-- Замените src на актуальную ссылку на логотип колледжа -->
+            <img src="https://ak-kolyvan.nso.ru/sites/default/files/logo.png" alt="Герб КАК" onerror="this.style.display='none'">
+            <div>
+                <div class="title">Колыванский аграрный колледж</div>
+                <div class="subtitle">Мобильное расписание</div>
+            </div>
+        </div>
+
+        <!-- Экран 1: Главная (Отделения) -->
+        <div id="screen-home" class="screen active">
+            <div id="departments-list"></div>
+        </div>
+
+        <!-- Экран 2: Список групп -->
+        <div id="screen-groups" class="screen">
+            <h2 id="groups-header" style="margin-bottom: 16px; font-size: 20px;"></h2>
+            <div id="groups-list"></div>
+        </div>
+
+        <!-- Экран 3: Расписание -->
+        <div id="screen-schedule" class="screen">
+            <h2 id="schedule-header" style="font-size: 20px;"></h2>
+            <div id="schedule-subheader" style="color: var(--hint-color); margin-bottom: 10px; font-size: 14px;"></div>
+            <div id="schedule-list"></div>
+        </div>
+    </div>
+
+    <!-- ЗАГЛУШКА ДЛЯ ОБЫЧНОГО БРАУЗЕРА -->
+    <div id="browser-fallback" class="browser-fallback">
+        <div class="icon" style="font-size: 64px;">📱</div>
+        <h2>Откройте в мессенджере МАХ</h2>
+        <p>Это мини-приложение предназначено для работы внутри национального мессенджера МАХ.</p>
+        <a href="https://max.ru/kolyvan_college_bot">Перейти к боту колледжа</a>
+    </div>
+
+    <script>
+        // Инициализация WebApp (совместимо с Telegram и МАХ)
+        const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : (window.WebApp || null);
+        const isWebApp = !!tg;
+        const haptic = isWebApp && tg.HapticFeedback ? tg.HapticFeedback : null;
+
+        // База данных колледжа (на основе реальных специальностей КАК)
+        const db = {
+            departments: [
+                {
+                    id: 'dept1', name: 'Отделение №1', address: 'ул. Мира, 11', icon: '🌾',
+                    groups: [
+                        { id: 'agro_11', name: 'Агрономия (А-11)', course: '1 курс' },
+                        { id: 'agro_21', name: 'Агрономия (А-21)', course: '2 курс' },
+                        { id: 'tech_31', name: 'Эксплуатация с/х техники (Т-31)', course: '3 курс' }
+                    ]
+                },
+                {
+                    id: 'dept2', name: 'Отделение №2', address: 'ул. Ленина, 125', icon: '🐎',
+                    groups: [
+                        { id: 'vet_21', name: 'Ветеринария (В-21)', course: '2 курс' },
+                        { id: 'zoo_11', name: 'Зоотехния (З-11)', course: '1 курс' },
+                        { id: 'econ_21', name: 'Экономика и бух. учет (Э-21)', course: '2 курс' }
+                    ]
+                },
+                {
+                    id: 'dept3', name: 'Отделение №3', address: 'ул. Ленина, 125', icon: '⚖️',
+                    groups: [
+                        { id: 'law_11', name: 'Правоохранительная деятельность (П-11)', course: '1 курс' },
+                        { id: 'cook_11', name: 'Повар, кондитер (К-11)', course: '1 курс' }
+                    ]
+                },
+                {
+                    id: 'bpla', name: 'Центр БПЛА', address: 'ул. Ленина, 125', icon: '🚁',
+                    groups: [
+                        { id: 'bpla_11', name: 'Эксплуатация БПЛА (Б-11)', course: '1 курс' },
+                        { id: 'bpla_21', name: 'Эксплуатация БПЛА (Б-21)', course: '2 курс' }
+                    ]
+                },
+                {
+                    id: 'drive', name: 'Автошкола и Трактористы', address: 'ул. Ленина, 125', icon: '🚗',
+                    groups: [
+                        { id: 'drive_b', name: 'Водители кат. B', course: 'Проф. подготовка' },
+                        { id: 'drive_c', name: 'Водители кат. C', course: 'Проф. подготовка' },
+                        { id: 'traktor', name: 'Трактористы кат. C, E', course: 'Проф. подготовка' }
+                    ]
+                },
+                {
+                    id: 'zaoch', name: 'Заочное отделение', address: 'ул. Ленина, 125, каб. 210', icon: '📚',
+                    groups: [
+                        { id: 'zaoch_law', name: 'Правоохранительная деятельность', course: 'Заочная форма' },
+                        { id: 'zaoch_econ', name: 'Экономика и бух. учет', course: 'Заочная форма' }
+                    ]
+                }
+            ]
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            if (isWebApp) {
+                tg.ready();
+                tg.expand(); // Развернуть на всю высоту экрана
+                
+                // Проверка диплинка (Payload)
+                const payload = tg.initDataUnsafe?.start_param;
+                
+                if (payload) {
+                    const groupData = findGroup(payload);
+                    if (groupData) {
+                        openSchedule(groupData, true);
+                    } else {
+                        renderHome();
+                    }
+                } else {
+                    renderHome();
+                }
+
+                // Настройка нативных кнопок
+                tg.MainButton.setText('Выбрать другую группу');
+                tg.MainButton.onClick(() => {
+                    if (haptic) haptic.impactOccurred('light');
+                    showScreen('screen-home');
+                    tg.BackButton.show();
+                    tg.MainButton.hide();
+                });
+
+                tg.BackButton.onClick(() => {
+                    if (haptic) haptic.impactOccurred('light');
+                    handleBack();
+                });
+
+            } else {
+                // Если открыто в обычном браузере (не через МАХ)
+                document.getElementById('app-container').style.display = 'none';
+                document.getElementById('browser-fallback').style.display = 'flex';
+            }
+        });
+
+        let currentScreen = 'screen-home';
+
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+            
+            if (screenId === 'screen-home') {
+                if (isWebApp) { tg.BackButton.hide(); tg.MainButton.hide(); }
+            } else {
+                if (isWebApp) tg.BackButton.show();
+            }
+            currentScreen = screenId;
+            window.scrollTo(0, 0);
+        }
+
+        function handleBack() {
+            if (currentScreen === 'screen-schedule') showScreen('screen-groups');
+            else if (currentScreen === 'screen-groups') showScreen('screen-home');
+            else showScreen('screen-home');
+        }
+
+        function findGroup(groupId) {
+            for (let dept of db.departments) {
+                for (let group of dept.groups) {
+                    if (group.id === groupId) return { dept, group };
+                }
+            }
+            return null;
+        }
+
+        function renderHome() {
+            const container = document.getElementById('departments-list');
+            container.innerHTML = '';
+            db.departments.forEach(dept => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `<div class="card-title">${dept.icon} ${dept.name}</div><div class="card-subtitle">${dept.address}</div>`;
+                card.onclick = () => {
+                    if (haptic) haptic.impactOccurred('light');
+                    renderGroups(dept);
+                    showScreen('screen-groups');
+                };
+                container.appendChild(card);
+            });
+        }
+
+        function renderGroups(dept) {
+            document.getElementById('groups-header').innerText = dept.name;
+            const container = document.getElementById('groups-list');
+            container.innerHTML = '';
+            dept.groups.forEach(group => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `<div class="card-title">${group.name}</div><div class="card-subtitle">${group.course}</div>`;
+                card.onclick = () => {
+                    if (haptic) haptic.impactOccurred('light');
+                    openSchedule({dept, group}, false);
+                };
+                container.appendChild(card);
+            });
+        }
+
+        function openSchedule(data, isDeepLink) {
+            document.getElementById('schedule-header').innerText = data.group.name;
+            document.getElementById('schedule-subheader').innerText = `${data.dept.name} • ${data.group.course}`;
+            const container = document.getElementById('schedule-list');
+            container.innerHTML = '';
+            const schedule = generateSchedule(data.group.id);
+            
+            if (schedule.length === 0) {
+                container.innerHTML = `<div class="empty-state"><div class="icon">📅</div><p>Расписание пока не загружено.</p></div>`;
+            } else {
+                let currentDay = '';
+                schedule.forEach(lesson => {
+                    if (lesson.day !== currentDay) {
+                        currentDay = lesson.day;
+                        const dayEl = document.createElement('div');
+                        dayEl.className = 'day-header';
+                        dayEl.innerText = currentDay;
+                        container.appendChild(dayEl);
+                    }
+                    const lessonEl = document.createElement('div');
+                    lessonEl.className = 'lesson';
+                    lessonEl.innerHTML = `
+                        <div class="lesson-time">${lesson.time}</div>
+                        <div class="lesson-info">
+                            <div class="lesson-subject">${lesson.subject}</div>
+                            <div class="lesson-details">${lesson.room} • ${lesson.teacher}</div>
+                        </div>`;
+                    container.appendChild(lessonEl);
+                });
+            }
+            showScreen('screen-schedule');
+            if (isWebApp) tg.MainButton.show();
+        }
+
+        // Генератор расписания (Демо-данные, в реальном проекте здесь будет fetch к API колледжа)
+        function generateSchedule(groupId) {
+            const subjectsMap = {
+                'agro_11': [{ subject: 'Основы агрономии', room: 'Каб. 15', teacher: 'Иванов И.И.' }, { subject: 'Почвоведение', room: 'Каб. 12', teacher: 'Петрова М.С.' }],
+                'vet_21': [{ subject: 'Анатомия животных', room: 'Каб. 208', teacher: 'Кузнецов В.Г.' }, { subject: 'Клиническая диагностика', room: 'Ветлечебница', teacher: 'Орлов С.П.' }],
+                'bpla_11': [{ subject: 'Аэродинамика', room: 'Каб. 301', teacher: 'Соколов И.М.' }, { subject: 'Практика пилотирования', room: 'Полигон', teacher: 'Соколов И.М.' }],
+                'drive_b': [{ subject: 'ПДД', room: 'Каб. 101', teacher: 'Михайлов К.Ю.' }, { subject: 'Вождение (Автодром)', room: 'Автодром', teacher: 'Егоров В.С.' }]
+            };
+            const subjects = subjectsMap[groupId] || [{ subject: 'Профильная дисциплина', room: 'Каб. 101', teacher: 'Преподаватель' }];
+            const days = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+            const times = ['09:00', '10:40', '12:40', '14:20'];
+            let schedule = [];
+            const today = new Date();
+            
+            for (let i = 0; i < 3; i++) {
+                const currentDate = new Date(today);
+                currentDate.setDate(today.getDate() + i);
+                if (currentDate.getDay() === 0) continue; // Пропускаем воскресенье
+                
+                let dayName = i === 0 ? 'Сегодня' : (i === 1 ? 'Завтра' : days[currentDate.getDay()]);
+                const dateStr = `${currentDate.getDate().toString().padStart(2, '0')}.${(currentDate.getMonth() + 1).toString().padStart(2, '0')}`;
+                
+                for (let j = 0; j < 2 + Math.floor(Math.random() * 2); j++) {
+                    const subj = subjects[j % subjects.length];
+                    schedule.push({ day: `${dayName}, ${dateStr}`, time: times[j], subject: subj.subject, room: subj.room, teacher: subj.teacher });
+                }
+            }
+            return schedule;
+        }
+    </script>
+</body>
+</html>
